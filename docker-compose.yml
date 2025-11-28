@@ -1,0 +1,52 @@
+version: '2.4' # Versão necessária para healthchecks condicionais
+
+services:
+  # Redis
+  redis:
+    image: redis:6
+    container_name: awx_redis
+    restart: always
+
+  # Banco de Dados (Postgres 13 é o padrão da v24)
+  postgres:
+    image: postgres:13
+    container_name: awx_postgres
+    restart: always
+    environment:
+      POSTGRES_USER: awx
+      POSTGRES_PASSWORD: awxpassword
+      POSTGRES_DB: awx
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    # O segredo: O banco avisa quando está pronto
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U awx"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # AWX (Versão 24.6.1)
+  awx_web:
+    image: stachos/fatec-scs-imagem-omnistack-frontend
+    container_name: awx_web
+    restart: always
+    # Só inicia se o Postgres e o Redis estiverem saudáveis
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    ports:
+      - "8080:8052"
+    user: root
+    environment:
+      AWX_SETTINGS_FILE: /etc/tower/settings.py
+      AWX_ADMIN_USER: admin
+      AWX_ADMIN_PASSWORD: password
+    volumes:
+      - ./settings.py:/etc/tower/settings.py
+    # Script para rodar as migrações e subir o servidor
+    command: /bin/sh -c "awx-manage migrate --noinput && awx-manage runserver 0.0.0.0:8052"
+
+volumes:
+  pgdata:
